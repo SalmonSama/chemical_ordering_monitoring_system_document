@@ -96,15 +96,6 @@ erDiagram
         datetime UpdatedAt
     }
 
-    PeroxideConfigRule {
-        uuid Id PK
-        string PeroxideClass UK "max 20 — alternate key"
-        bool TestBeforeUse
-        int TestIntervalMonths
-        int DisposeAfterOpeningMonths
-        int DisposeAfterReceiptMonths
-    }
-
     Item {
         uuid Id PK
         string ItemName "max 300"
