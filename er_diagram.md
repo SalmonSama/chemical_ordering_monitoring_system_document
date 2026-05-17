@@ -120,7 +120,7 @@ erDiagram
         bool AllowsCheckout
         bool TracksExpiry
         bool RequiresPeroxideMonitoring
-        string PeroxideClass FK "max 20, nullable — FK to PeroxideConfigRule"
+        string PeroxideClass "max 20, nullable — plain string, no FK"
         bool IsRegulatoryRelated
         bool IsActive
         decimal TotalMinStock "computed"
@@ -130,6 +130,13 @@ erDiagram
         decimal AtcMinStock "computed"
         datetime CreatedAt
         datetime UpdatedAt
+    }
+
+    FavoriteItem {
+        uuid Id PK
+        uuid UserId FK "UK(UserId+ItemId)"
+        uuid ItemId FK
+        datetime CreatedAt
     }
 
     ItemLabSetting {
@@ -182,7 +189,7 @@ erDiagram
         uuid PurchaseRequestItemId FK "nullable"
         uuid CheckedInBy FK
         datetime CheckedInAt
-        string QrCodeData "jsonb"
+        string QrCodeData "json"
         int ExtensionCount
         int Version
         string Notes
@@ -208,7 +215,7 @@ erDiagram
         decimal QuantityBase "numeric(18,6)"
         string Type "max 3, CHECK IN/OUT"
         string Notes
-        string Metadata "jsonb"
+        string Metadata "json"
         datetime CreatedAt
     }
 
@@ -324,10 +331,12 @@ erDiagram
     ItemCategory ||--o{ Item : "has many"
     RegulatoryType ||--o{ Item : "has many"
     Vendor ||--o{ Item : "default vendor"
-    PeroxideConfigRule ||--o{ Item : "PeroxideClass FK"
 
     Item ||--o{ ItemLabSetting : "has many"
     Lab ||--o{ ItemLabSetting : "has many"
+
+    User ||--o{ FavoriteItem : "has many"
+    Item ||--o{ FavoriteItem : "has many"
 
     ItemCategory ||--o| PoReference : "optional"
     Lab ||--o| PoReference : "optional"
@@ -379,7 +388,7 @@ erDiagram
 
 | Domain | Entities | Description |
 |--------|----------|-------------|
-| **Master Data** | `Role`, `Location`, `Lab`, `User`, `UserLocation`, `Vendor`, `ItemCategory`, `RegulatoryType`, `Item`, `ItemLabSetting`, `PoReference`, `PeroxideConfigRule` | Core reference data and catalog |
+| **Master Data** | `Role`, `Location`, `Lab`, `User`, `UserLocation`, `Vendor`, `ItemCategory`, `RegulatoryType`, `Item`, `FavoriteItem`, `ItemLabSetting`, `PoReference` | Core reference data and catalog |
 | **Inventory Core** | `InventoryLot`, `StockTransaction` | Physical stock tracking (lots, IN/OUT transactions) |
 | **Order Workflow** | `PurchaseRequest`, `PurchaseRequestItem`, `PurchaseRequestItemRevision` | Purchase ordering, approval, and revision audit |
 | **Monitoring** | `PeroxideTest`, `ShelfLifeExtension`, `QrScanLog` | Safety testing, expiry extensions, QR scan audit |
@@ -387,15 +396,16 @@ erDiagram
 ## Key Relationships Summary
 
 | From | → To | FK Column | Delete Behavior |
-|------|-------|-----------|-----------------|
+|------|-------|-----------|-----------------| 
 | `Item` | `ItemCategory` | `CategoryId` | Restrict |
 | `Item` | `RegulatoryType` | `RegulatoryTypeId` | SetNull |
 | `Item` | `Vendor` | `DefaultVendorId` | SetNull |
-| `Item` | `PeroxideConfigRule` | `PeroxideClass` *(alternate key)* | SetNull |
 | `Lab` | `Location` | `LocationId` | Restrict |
 | `User` | `Role` | `RoleId` | Restrict |
 | `UserLocation` | `User` | `UserId` | Cascade |
 | `UserLocation` | `Location` | `LocationId` | Cascade |
+| `FavoriteItem` | `User` | `UserId` | Cascade |
+| `FavoriteItem` | `Item` | `ItemId` | Cascade |
 | `ItemLabSetting` | `Item` | `ItemId` | Cascade |
 | `ItemLabSetting` | `Lab` | `LabId` | Cascade |
 | `InventoryLot` | `Item` | `ItemId` | Restrict |
@@ -405,17 +415,30 @@ erDiagram
 | `InventoryLot` | `User` | `CheckedInBy` | Restrict |
 | `StockTransaction` | `InventoryLot` | `LotId` | Restrict |
 | `StockTransaction` | `User` | `UserId` | Restrict |
+| `StockTransaction` | `Lab` | `LabId` | Restrict |
+| `StockTransaction` | `Location` | `LocationId` | Restrict |
+| `StockTransaction` | `Item` | `ItemId` | Restrict |
+| `StockTransaction` | `PurchaseRequest` | `PurchaseRequestId` | Restrict |
 | `PurchaseRequest` | `Lab` | `LabId` | Restrict |
+| `PurchaseRequest` | `Location` | `LocationId` | Restrict |
+| `PurchaseRequest` | `User` | `RequestedBy` | Restrict |
+| `PurchaseRequest` | `User` | `ApprovedBy` | Restrict |
 | `PurchaseRequest` | `PoReference` | `PoReferenceId` | SetNull |
 | `PurchaseRequestItem` | `PurchaseRequest` | `PurchaseRequestId` | Cascade |
 | `PurchaseRequestItem` | `Item` | `ItemId` | Restrict |
+| `PurchaseRequestItem` | `Vendor` | `VendorId` | SetNull |
 | `PurchaseRequestItemRevision` | `PurchaseRequest` | `PurchaseRequestId` | Cascade |
+| `PurchaseRequestItemRevision` | `PurchaseRequestItem` | `PurchaseRequestItemId` | Restrict |
+| `PurchaseRequestItemRevision` | `User` | `RevisedBy` | Restrict |
 | `PeroxideTest` | `InventoryLot` | `InventoryLotId` | Restrict |
+| `PeroxideTest` | `User` | `TestedByUserId` | Restrict |
 | `ShelfLifeExtension` | `InventoryLot` | `InventoryLotId` | Restrict |
+| `ShelfLifeExtension` | `User` | `AuthorizedByUserId` | Restrict |
 | `QrScanLog` | `InventoryLot` | `InventoryLotId` | Restrict |
+| `QrScanLog` | `User` | `ScannedByUserId` | Restrict |
 | `PoReference` | `ItemCategory` | `CategoryId` | SetNull |
 | `PoReference` | `Lab` | `LabId` | SetNull |
 | `PoReference` | `Vendor` | `VendorId` | SetNull |
 
 > [!NOTE]
-> The `Item.PeroxideClass → PeroxideConfigRule.PeroxideClass` relationship uses an **alternate key** (`HasPrincipalKey`), not the primary key `Id`. This allows the string `PeroxideClass` column to serve as both a readable value and a referential integrity constraint.
+> `Item.PeroxideClass` is a plain string column (max 20 chars, nullable). The `PeroxideConfigRule` table was removed — peroxide classification (A/B/C) is now stored directly on the `Item` entity without a foreign key constraint.

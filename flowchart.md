@@ -5,49 +5,43 @@
 ```mermaid
 graph TB
     subgraph Client["🌐 Client Browser"]
-        React["React 19 SPA<br/>Vite 8 + TypeScript"]
+        React["React 19 SPA<br/>Vite 8 + TypeScript 6"]
     end
 
-    subgraph Docker["🐳 Docker Compose"]
-        subgraph Frontend["Frontend Container"]
-            Vite["Vite Dev Server :5173"]
-            Nginx["Nginx :80 (prod)"]
+    subgraph Azure["☁️ Azure Cloud Services"]
+        subgraph Frontend["Azure Static Web Apps"]
+            SWA["Static Web App<br/>calm-moss-090033100<br/>(global CDN)"]
         end
 
-        subgraph Backend["Backend Container"]
-            API[".NET 10 Web API :5000"]
+        subgraph Backend["Azure App Service"]
+            API[".NET 10 Web API<br/>labinv2-sandbox.azurewebsites.net"]
             EF["Entity Framework Core 9"]
             JWT["JWT Auth Middleware"]
             Swagger["Swagger UI"]
         end
 
-        subgraph Database["Database Container"]
-            PG["PostgreSQL 16 Alpine"]
-            InitDB["initdb/01_restore.sql"]
-        end
-
-        subgraph Backup["Backup Container"]
-            Cron["Cron Scheduler"]
-            BkScript["backup.sh / rotate.sh"]
+        subgraph Database["Azure Database for MySQL"]
+            MySQL["MySQL Flexible Server<br/>mysqlsvr-labinv2-sandbox"]
         end
     end
 
-    React -->|"HTTP/REST (Axios)"| Vite
-    Vite -->|"Proxy /api/*"| API
-    Nginx -->|"Proxy /api/*"| API
+    subgraph Mail["📧 External Services"]
+        SMTP["Gmail SMTP<br/>(Password Reset)"]
+    end
+
+    React -->|"HTTP/REST (Axios)"| SWA
+    SWA -->|"VITE_API_BASE_URL"| API
     API --> JWT
     JWT --> EF
-    EF -->|"Npgsql"| PG
-    InitDB -.->|"First run only"| PG
-    Cron --> BkScript
-    BkScript -->|"pg_dump"| PG
+    EF -->|"Pomelo.EntityFrameworkCore.MySql"| MySQL
+    API -->|"SMTP"| SMTP
 
     style Client fill:#1e293b,stroke:#6366f1,color:#e2e8f0
-    style Docker fill:#0f172a,stroke:#334155,color:#e2e8f0
+    style Azure fill:#0f172a,stroke:#334155,color:#e2e8f0
     style Frontend fill:#1e1b4b,stroke:#818cf8,color:#e2e8f0
     style Backend fill:#172554,stroke:#60a5fa,color:#e2e8f0
     style Database fill:#14532d,stroke:#4ade80,color:#e2e8f0
-    style Backup fill:#431407,stroke:#fb923c,color:#e2e8f0
+    style Mail fill:#431407,stroke:#fb923c,color:#e2e8f0
 ```
 
 ---
@@ -66,10 +60,15 @@ flowchart TD
 
     LoginPage -->|"POST /api/auth/login"| AuthAPI["Auth Controller"]
     AuthAPI --> VerifyPW{BCrypt verify<br/>password?}
-    VerifyPW -->|❌ Fail| LoginError["Show error message"]
+    VerifyPW -->|"❌ Fail"| LoginError["Show error message"]
     LoginError --> LoginPage
-    VerifyPW -->|✅ Pass| GenerateJWT["Generate JWT Token<br/>(userId, role, email)"]
+    VerifyPW -->|"✅ Pass"| GenerateJWT["Generate JWT Token<br/>(userId, role, email)"]
     GenerateJWT --> PostLogin
+
+    LoginPage -->|"Forgot password?"| ForgotPW["/forgot-password<br/>Enter email"]
+    ForgotPW -->|"POST /api/auth/forgot-password"| SendEmail["Send Reset Email<br/>(Gmail SMTP)"]
+    SendEmail --> ResetPW["/reset-password<br/>Set new password"]
+    ResetPW -->|"POST /api/auth/reset-password"| AuthAPI
 
     PostLogin --> CheckRole{User Role?}
 
@@ -102,6 +101,8 @@ flowchart TD
 ```mermaid
 flowchart TD
     Browse["👤 Browse Catalog"] -->|Add to cart| Cart["🛒 Cart Page"]
+    Browse -->|"⭐ Toggle favorite"| Fav["FavoriteItem<br/>(POST /api/favorites)"]
+    Fav --> Browse
     Cart -->|Submit order| CreatePR["POST /api/orders<br/>Create Purchase Request"]
 
     CreatePR --> PRStatus["Status: pending_approval"]
@@ -230,7 +231,7 @@ flowchart TD
     IsPeroxide -->|No| NormalTrack["Normal inventory tracking"]
     IsPeroxide -->|Yes| AddToPeroxide["Add to Peroxide Tracking<br/>/monitoring/peroxide"]
 
-    AddToPeroxide --> CalcSchedule["Calculate Test Schedule<br/>(based on PeroxideConfigRule)"]
+    AddToPeroxide --> CalcSchedule["Calculate Test Schedule<br/>(based on PeroxideClass: A/B/C)"]
 
     CalcSchedule --> Tracking["Active Peroxide Lot"]
 
@@ -266,45 +267,47 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph Trigger["🔫 Trigger"]
-        Push["Git Push"]
+        Push["Git Push / PR<br/>(main branch)"]
     end
 
-    subgraph CI["⚙️ GitHub Actions (ci-cd.yml)"]
-        Build["Build<br/>Docker images"]
-        Test["Test<br/>dotnet test"]
-        Deploy["Deploy<br/>to target env"]
+    subgraph FrontendCI["🎨 Frontend Pipeline<br/>(GitHub Actions)"]
+        SWABuild["Azure/static-web-apps-deploy@v1<br/>Build React + Vite"]
+        SWADeploy["Deploy to<br/>Azure Static Web Apps"]
     end
 
-    subgraph DeployScript["🚀 deploy.sh"]
-        Backup["1. Pre-deploy backup"]
-        Pull["2. Pull/build images"]
-        Migrate["3. Run DB migrations"]
-        Rolling["4. Rolling restart"]
-        Health["5. Health check"]
+    subgraph BackendCI["⚙️ Backend Pipeline<br/>(GitHub Actions)"]
+        BEBuild["Build .NET 10<br/>+ dotnet test"]
+        DockerBuild["Build & Push<br/>Docker Images (GHCR)"]
+        SSHDeploy["Deploy via SSH<br/>(staging / prod)"]
     end
 
-    subgraph Prod["🏭 Production (Blue-Green)"]
-        NginxProd["Nginx"]
-        Blue["Backend Blue"]
-        Green["Backend Green"]
-        DB["PostgreSQL"]
+    subgraph AzureDevOps["🔷 Azure DevOps Pipelines"]
+        ADOBuild["CI Build<br/>(Docker / Compose)"]
+        ADODeploy["CD Deploy<br/>(Web App / ACI / SSH)"]
     end
 
-    Push -->|"main branch"| CI
-    Push -->|"develop branch"| CI
-    CI --> Build --> Test --> Deploy
-    Deploy --> DeployScript
-    DeployScript --> Backup --> Pull --> Migrate --> Rolling --> Health
+    subgraph Prod["🏭 Production"]
+        StaticWeb["Azure Static Web Apps<br/>calm-moss-090033100"]
+        AppSvc["Azure App Service<br/>labinv2-sandbox"]
+        DB["Azure MySQL<br/>Flexible Server"]
+    end
 
-    Rolling -->|"Switch upstream"| NginxProd
-    NginxProd --> Blue
-    NginxProd -.->|"standby"| Green
-    Blue --> DB
-    Green --> DB
+    Push --> FrontendCI
+    Push --> BackendCI
+    Push --> AzureDevOps
+
+    SWABuild --> SWADeploy
+    BEBuild --> DockerBuild --> SSHDeploy
+
+    SWADeploy --> StaticWeb
+    SSHDeploy --> AppSvc
+    ADODeploy --> AppSvc
+    AppSvc --> DB
 
     style Trigger fill:#6366f1,stroke:#818cf8,color:#fff
-    style CI fill:#1e1b4b,stroke:#818cf8,color:#e2e8f0
-    style DeployScript fill:#172554,stroke:#60a5fa,color:#e2e8f0
+    style FrontendCI fill:#1e1b4b,stroke:#818cf8,color:#e2e8f0
+    style BackendCI fill:#172554,stroke:#60a5fa,color:#e2e8f0
+    style AzureDevOps fill:#0c4a6e,stroke:#38bdf8,color:#e2e8f0
     style Prod fill:#14532d,stroke:#4ade80,color:#e2e8f0
 ```
 
@@ -315,6 +318,8 @@ flowchart LR
 ```mermaid
 flowchart TD
     Login["/login"] -->|"Auth success"| Loading["/auth/entering"]
+    Login -->|"Forgot?"| ForgotPW["/forgot-password"]
+    ForgotPW -->|"Email link"| ResetPW["/reset-password"]
     Loading --> Dashboard["/  Dashboard"]
 
     Dashboard --> Orders
@@ -325,6 +330,7 @@ flowchart TD
 
     subgraph Orders["📦 Orders"]
         Catalog["/orders/catalog"]
+        Favorites["/orders/favorites → catalog?view=favorites"]
         Cart["/orders/cart"]
         MyOrders["/orders/my-orders"]
         Approval["/orders/approval-queue 🔒"]
@@ -361,9 +367,9 @@ flowchart TD
         Roles["/admin/roles"]
         Vendors["/admin/vendors"]
         Categories["/admin/categories"]
-        Items["/admin/items"]
+        Items["/admin/items 🔒FP"]
         LabSettings["/admin/item-lab-settings"]
-        PO["/admin/po-references"]
+        PO["/admin/po-references 🔒FP"]
     end
 
     style Login fill:#6366f1,stroke:#818cf8,color:#fff
@@ -376,6 +382,7 @@ flowchart TD
 ```
 
 > 🔒 = Requires `admin` or `focal_point` role
+> 🔒FP = Accessible by both `admin` and `focal_point`
 
 ---
 
@@ -438,20 +445,21 @@ erDiagram
         string Code UK
     }
 
-    PeroxideConfigRule {
-        uuid Id PK
-        string PeroxideClass UK "alternate key"
-        bool TestBeforeUse
-    }
-
     Item {
         uuid Id PK
         string ItemName
         uuid CategoryId FK
         uuid RegulatoryTypeId FK
         uuid DefaultVendorId FK
-        string PeroxideClass FK
+        string PeroxideClass "max 20, nullable (no FK)"
         decimal TotalMinStock
+    }
+
+    FavoriteItem {
+        uuid Id PK
+        uuid UserId FK
+        uuid ItemId FK
+        datetime CreatedAt
     }
 
     ItemLabSetting {
@@ -567,10 +575,12 @@ erDiagram
     ItemCategory ||--o{ Item : "has many"
     RegulatoryType ||--o{ Item : "has many"
     Vendor ||--o{ Item : "default vendor"
-    PeroxideConfigRule ||--o{ Item : "PeroxideClass FK"
 
     Item ||--o{ ItemLabSetting : "has many"
     Lab ||--o{ ItemLabSetting : "has many"
+
+    User ||--o{ FavoriteItem : "has many"
+    Item ||--o{ FavoriteItem : "has many"
 
     ItemCategory ||--o| PoReference : "optional"
     Lab ||--o| PoReference : "optional"
@@ -606,13 +616,13 @@ erDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Browser as 🌐 React SPA
+    participant Browser as 🌐 React SPA<br/>(Azure Static Web Apps)
     participant Axios as Axios Client
-    participant API as .NET Web API
+    participant API as .NET 10 Web API<br/>(Azure App Service)
     participant JWT as JWT Middleware
     participant Controller as Controller
-    participant EF as EF Core
-    participant DB as PostgreSQL
+    participant EF as EF Core 9
+    participant DB as Azure MySQL
 
     Browser->>Axios: User action (e.g., submit order)
     Axios->>Axios: Attach JWT from localStorage
@@ -632,7 +642,7 @@ sequenceDiagram
     end
 
     Controller->>EF: Query/Mutate data
-    EF->>DB: SQL via Npgsql
+    EF->>DB: SQL via Pomelo MySQL
     DB-->>EF: Result set
     EF-->>Controller: Entity objects
     Controller-->>API: JSON response
